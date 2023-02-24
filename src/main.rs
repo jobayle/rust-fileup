@@ -1,18 +1,36 @@
+use std::path::{PathBuf};
+
+use rocket::Data;
+use rocket::data::ToByteUnit;
 use rocket::serde::{Serialize, json::Json};
+use rocket::tokio::fs::File;
+use rocket::tokio::io::{BufWriter, BufStream};
+
+use crate::Headers::*;
+
+pub mod Headers;
 
 #[macro_use] extern crate rocket;
 
-#[get("/hw")]
+#[get("/")]
 fn hello() -> &'static str {
-    "Hello, world!"
+    r#"<!doctype html>
+    <html>
+        <form action="upload" method="post">
+            <label for="fileup">Upload file:</label>
+            <input type="file" id="fileup" name="file" accept="*.*">
+        </form>
+    </html>"#
 }
-#[get("/fb")]
-fn foo() -> &'static str {
-    "FooBar!"
-}
-#[get("/infos")]
-fn infos() -> Json<MyTest> {
-    Json(MyTest { id: 1, value: String::from("value") })
+
+
+#[post("/upload", data = "<data>")]
+fn upload(data: Data<'_>, cd: ContentDisposition) {
+    let mut path = PathBuf::new();
+    path.push("./uploads/");
+    path.push(cd.content_name);
+    data.open(1.gigabytes())
+        .stream_to(BufStream::new(File::create(path)));
 }
 
 #[derive(Serialize)]
@@ -24,5 +42,5 @@ struct MyTest {
 
 #[launch]
 fn rocket() -> _ {
-    rocket::build().mount("/", routes![hello,foo,infos])
+    rocket::build().mount("/", routes![hello])
 }
