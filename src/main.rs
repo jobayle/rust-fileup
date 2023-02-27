@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use rocket::Data;
 use rocket::data::Limits;
 use rocket::form::Form;
-use rocket::fs::TempFile;
+use rocket::fs::{TempFile, FileServer};
 use rocket::http::Status;
 use rocket::response::Responder;
 use rocket::serde::Serialize;
@@ -67,4 +67,5 @@ struct MyTest {
 #[launch]
 fn rocket() -> _ {
     rocket::build().mount("/", routes![hello, upload, upload_form])
+        .mount("/files", FileServer::from("./uploads/"))
 }
