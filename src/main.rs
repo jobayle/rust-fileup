@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{PathBuf, Path};
 
 use rocket::Data;
 use rocket::data::Limits;
@@ -28,6 +28,31 @@ fn hello() -> RawHtml {
             <input type="submit" value="Upload" />
         </form>
     </html>"#)
+}
+
+#[derive(Responder)]
+#[response(status = 200, content_type = "text/html; charset=utf-8")]
+struct DynHtml(String);
+
+// GET /uploads -> listing HTML of content of folder uploads/
+#[get("/uploads")]
+fn uploads() -> DynHtml {
+    let mut res = String::from("Could not read folder uploads/");
+    if let Ok(dir_iter) = Path::new("./uploads/").read_dir() {
+        let listing = dir_iter.filter(|r| r.is_ok())
+                .map(|r| r.unwrap())
+                .map(|de| de.file_name().to_str().map(|f| format!(r#"<li><a href="/files/{}">{}</a></li>"#, f, f)))
+                .filter(|o| o.is_some())
+                .fold(String::new(), |mut acc: String, s| { acc.push_str(s.unwrap().as_str()); acc });
+        res = format!(r#"<!doctype html>
+        <html>
+            <h1>Uploads</h1>
+            <ul>
+                {}
+            </ul>
+        </html>"#, listing);
+    }
+    DynHtml(res)
 }
 
 // /upload with a ContentDisposition guard to upload from script :
@@ -66,6 +91,6 @@ struct MyTest {
 
 #[launch]
 fn rocket() -> _ {
-    rocket::build().mount("/", routes![hello, upload, upload_form])
+    rocket::build().mount("/", routes![hello, upload, upload_form, uploads])
         .mount("/files", FileServer::from("./uploads/"))
 }
