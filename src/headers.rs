@@ -19,7 +19,7 @@ pub struct ContentDisposition {
 
 impl FromStr for ContentDisposition {
     type Err = Infallible;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+    fn from_str(_: &str) -> Result<Self, Self::Err> {
         // TODO parse s and construct ContentDisposition
         Ok(ContentDisposition{content_type: ContentTypeEnum::Attachment, content_name: String::from("file.ext")})
     }

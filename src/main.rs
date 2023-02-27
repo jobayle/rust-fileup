@@ -1,36 +1,60 @@
-use std::path::{PathBuf};
+use std::path::PathBuf;
 
 use rocket::Data;
-use rocket::data::ToByteUnit;
-use rocket::serde::{Serialize, json::Json};
-use rocket::tokio::fs::File;
-use rocket::tokio::io::{BufWriter, BufStream};
+use rocket::data::Limits;
+use rocket::form::Form;
+use rocket::fs::TempFile;
+use rocket::http::Status;
+use rocket::response::Responder;
+use rocket::serde::Serialize;
 
-use crate::Headers::*;
+use crate::headers::*;
 
-pub mod Headers;
+pub mod headers;
 
 #[macro_use] extern crate rocket;
 
+#[derive(Responder)]
+#[response(status = 200, content_type = "text/html; charset=utf-8")]
+struct RawHtml(&'static str);
+
 #[get("/")]
-fn hello() -> &'static str {
-    r#"<!doctype html>
+fn hello() -> RawHtml {
+    RawHtml(r#"<!doctype html>
     <html>
-        <form action="upload" method="post">
+        <form action="upload" method="post" enctype="multipart/form-data">
             <label for="fileup">Upload file:</label>
             <input type="file" id="fileup" name="file" accept="*.*">
+            <input type="submit" value="Upload" />
         </form>
-    </html>"#
+    </html>"#)
 }
 
-
-#[post("/upload", data = "<data>")]
-fn upload(data: Data<'_>, cd: ContentDisposition) {
+// /upload with a ContentDisposition guard to upload from script :
+// curl -X POST --data-binary '@file.txt' -H 'Content-Type: application/octet-stream' -H 'Content-Disposition: attachment; filename="file.txt"' http://127.0.0.1:8000/upload
+#[post("/upload", data = "<data>", rank = 2)]
+async fn upload(data: Data<'_>, cd: ContentDisposition, limits: &Limits) -> Result<Status, (Status, std::io::Error)> {
     let mut path = PathBuf::new();
     path.push("./uploads/");
     path.push(cd.content_name);
-    data.open(1.gigabytes())
-        .stream_to(BufStream::new(File::create(path)));
+    match data.open(limits.get("file").unwrap()) // Limit type "file" always defined
+        .into_file(path).await {
+            Ok(_) => Ok(Status::Created),
+            Err(err) => Err((Status::InternalServerError, err))
+        }
+}
+
+// /upload using form multipart
+#[post("/upload", data = "<formfile>")]
+async fn upload_form(formfile: Form<TempFile<'_>>) -> Result<Status, (Status, std::io::Error)> {
+    let mut file = formfile.into_inner();
+    let mut path = PathBuf::new();
+    path.push("./uploads/");
+    path.push(file.raw_name().map(|fname| fname.dangerous_unsafe_unsanitized_raw().as_str()).unwrap_or("unamed_file"));
+    match file.persist_to(path).await {
+        Ok(_) => Ok(Status::Created),
+        Err(err) => Err((Status::InternalServerError, err))
+    }
 }
 
 #[derive(Serialize)]
@@ -42,5 +66,5 @@ struct MyTest {
 
 #[launch]
 fn rocket() -> _ {
-    rocket::build().mount("/", routes![hello])
+    rocket::build().mount("/", routes![hello, upload, upload_form])
 }
