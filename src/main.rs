@@ -41,7 +41,7 @@ fn uploads() -> DynHtml {
     if let Ok(dir_iter) = Path::new("./uploads/").read_dir() {
         let listing = dir_iter.filter(|r| r.is_ok())
                 .map(|r| r.unwrap())
-                .map(|de| de.file_name().to_str().map(|f| format!(r#"<li><a href="/files/{}">{}</a></li>"#, f, f)))
+                .map(|de| de.file_name().to_str().map(|f| format!(r#"<li><a href="/files/{f}">{f}</a></li>"#)))
                 .filter(|o| o.is_some())
                 .fold(String::new(), |mut acc: String, s| { acc.push_str(s.unwrap().as_str()); acc });
         res = format!(r#"<!doctype html>
