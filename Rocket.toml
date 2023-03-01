@@ -1,3 +1,4 @@
 ## defaults for _all_ profiles
 [default]
 limits = { file = "10 GiB", data-form = "10 GiB" }
+address = "0.0.0.0"
