@@ -10,3 +10,4 @@ actix-files = "0"
 actix-multipart = { version = "0", features = [ "tempfile" ] }
 futures-util = "0"
 env_logger = "0.10.0"
+mime = "0"

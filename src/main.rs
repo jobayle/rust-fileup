@@ -1,13 +1,16 @@
 use std::path::{PathBuf, Path};
 
-use actix_multipart::form::tempfile::TempFile;
+use actix_multipart::form::{MultipartForm, tempfile::TempFile};
+use actix_web::guard::GuardContext;
+use actix_web::http::header;
 use futures_util::stream::StreamExt;
 
 use actix_files::NamedFile;
 use actix_web::{get, post};
 use actix_web::web::{self, Payload, BytesMut};
-use actix_web::http::header;
-use actix_web::{App, HttpResponse, HttpServer, Responder, HttpRequest, Result};
+use actix_web::{App, HttpResponse, HttpServer, HttpRequest, Result};
+
+use mime;
 
 #[get("/")]
 async fn hello() -> HttpResponse  {
@@ -54,25 +57,45 @@ async fn index(req: HttpRequest) -> Result<NamedFile> {
     path.push(req.match_info().query("filename"));
     Ok(NamedFile::open(path)?)
 }
-/*
+
 // /upload with a ContentDisposition guard to upload from script :
 // curl -X POST --data-binary '@file.txt' -H 'Content-Type: application/octet-stream' -H 'Content-Disposition: attachment; filename="file.txt"' http://127.0.0.1:8000/upload
-#[post("/upload")]
+#[post("/upload", guard = "is_not_form_multipart")]
 async fn upload(content_disposition: web::Header<header::ContentDisposition>, mut body: Payload) -> HttpResponse {
     let cd = content_disposition.into_inner();
     //let tmp_file: TempFile.
-    cd.get_filename()
+    cd.get_filename();
+    let mut bytes = BytesMut::new();
     while let Some(item) = body.next().await {
-        bytes.extend_from_slice(&item?);
+        bytes.extend_from_slice(&item.unwrap());
     }
-    HttpResponse::BadRequest()
+    HttpResponse::Ok().body(format!("filename: {}", cd.get_filename().unwrap()))
 }
 
-#[post("/upload")]
-async fn upload_form(form: web::Form<MultipartUpload>) -> HttpResponse {
-    HttpResponse::Ok().body(format!("username: {}", form.username))
+#[derive(MultipartForm)]
+struct MultipartUpload {
+    file: TempFile,
 }
-*/
+
+#[post("/upload", guard = "is_form_multipart")]
+async fn upload_form(form: MultipartForm<MultipartUpload>) -> HttpResponse {
+    HttpResponse::Ok().body(format!("filename: {}", form.file.file_name.as_ref().unwrap()))
+}
+
+fn is_form_multipart(ctx: &GuardContext) -> bool {
+    match ctx.header::<header::ContentType>() {
+        Some(ct) => ct.0.type_() == mime::MULTIPART_FORM_DATA.type_(),
+        None => false,
+    }
+}
+
+fn is_not_form_multipart(ctx: &GuardContext) -> bool {
+    match ctx.header::<header::ContentType>() {
+        Some(ct) => ct.0.type_() != mime::MULTIPART_FORM_DATA.type_(),
+        None => false,
+    }
+}
+
 /*
 #[post("/upload", data = "<data>", rank = 2)]
 async fn upload(data: Data<'_>, cd: ContentDisposition, limits: &Limits) -> Result<Status, (Status, std::io::Error)> {
@@ -107,8 +130,18 @@ async fn main() -> std::io::Result<()> {
             .service(hello)
             .service(uploads)
             .route("/files/{filename:.*}", web::get().to(index)) // FIXME regex allows '../'
-            //.service(upload)
-            //.service(upload_form)
+            .service(upload_form)
+            .service(upload)
+            /*.service(
+                resource("/upload")
+                    .guard(guard::Post())
+                    .route(
+                        route()
+                            .guard(|ctx: &GuardContext| ctx.header::<header::ContentType>().is_some())
+                            .to(upload_form)
+                    )
+                    
+            )*/
     })
     .bind(("0.0.0.0", 8000))?
     .run()
