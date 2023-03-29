@@ -1,3 +1,5 @@
+use std::fs::{self, File};
+use std::io::Write;
 use std::path::{PathBuf, Path};
 
 use actix_multipart::form::{MultipartForm, tempfile::TempFile};
@@ -7,7 +9,7 @@ use futures_util::stream::StreamExt;
 
 use actix_files::NamedFile;
 use actix_web::{get, post};
-use actix_web::web::{self, Payload, BytesMut};
+use actix_web::web::{self, Payload};
 use actix_web::{App, HttpResponse, HttpServer, HttpRequest, Result};
 
 use mime;
@@ -63,13 +65,19 @@ async fn index(req: HttpRequest) -> Result<NamedFile> {
 #[post("/upload", guard = "is_not_form_multipart")]
 async fn upload(content_disposition: web::Header<header::ContentDisposition>, mut body: Payload) -> HttpResponse {
     let cd = content_disposition.into_inner();
-    //let tmp_file: TempFile.
-    cd.get_filename();
-    let mut bytes = BytesMut::new();
-    while let Some(item) = body.next().await {
-        bytes.extend_from_slice(&item.unwrap());
+    if let Some(filename) = cd.get_filename() {
+        let mut path = PathBuf::new();
+        path.push("./uploads/");
+        path.push(filename);
+        let mut file = File::create(path).unwrap();
+        while let Some(item) = body.next().await {
+            file.write_all(&item.unwrap());
+        }
+        HttpResponse::Created().body(format!("filename: {}", cd.get_filename().unwrap()))
     }
-    HttpResponse::Ok().body(format!("filename: {}", cd.get_filename().unwrap()))
+    else {
+        HttpResponse::BadRequest().body("Filename is missing")
+    }
 }
 
 #[derive(MultipartForm)]
@@ -79,7 +87,14 @@ struct MultipartUpload {
 
 #[post("/upload", guard = "is_form_multipart")]
 async fn upload_form(form: MultipartForm<MultipartUpload>) -> HttpResponse {
-    HttpResponse::Ok().body(format!("filename: {}", form.file.file_name.as_ref().unwrap()))
+    let filename = form.file.file_name.as_ref().unwrap();
+    let source = form.file.file.path();
+    let mut target = PathBuf::from("./uploads/");
+    target.push(filename);
+    match fs::rename(source, target) {
+        Ok(_) => HttpResponse::Created().body(format!("filename: {}", filename)),
+        Err(error) => HttpResponse::BadRequest().body(error.to_string())
+    }
 }
 
 fn is_form_multipart(ctx: &GuardContext) -> bool {
@@ -96,32 +111,6 @@ fn is_not_form_multipart(ctx: &GuardContext) -> bool {
     }
 }
 
-/*
-#[post("/upload", data = "<data>", rank = 2)]
-async fn upload(data: Data<'_>, cd: ContentDisposition, limits: &Limits) -> Result<Status, (Status, std::io::Error)> {
-    let mut path = PathBuf::new();
-    path.push("./uploads/");
-    path.push(cd.content_name);
-    match data.open(limits.get("file").unwrap()) // Limit type "file" always defined
-        .into_file(path).await {
-            Ok(_) => Ok(Status::Created),
-            Err(err) => Err((Status::InternalServerError, err))
-        }
-}
-
-// /upload using form multipart
-#[post("/upload", data = "<formfile>")]
-async fn upload_form(formfile: Form<TempFile<'_>>) -> Result<Status, (Status, std::io::Error)> {
-    let mut file = formfile.into_inner();
-    let mut path = PathBuf::new();
-    path.push("./uploads/");
-    path.push(file.raw_name().map(|fname| fname.dangerous_unsafe_unsanitized_raw().as_str()).unwrap_or("unamed_file"));
-    match file.persist_to(path).await {
-        Ok(_) => Ok(Status::Created),
-        Err(err) => Err((Status::InternalServerError, err))
-    }
-}*/
-
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
@@ -132,16 +121,6 @@ async fn main() -> std::io::Result<()> {
             .route("/files/{filename:.*}", web::get().to(index)) // FIXME regex allows '../'
             .service(upload_form)
             .service(upload)
-            /*.service(
-                resource("/upload")
-                    .guard(guard::Post())
-                    .route(
-                        route()
-                            .guard(|ctx: &GuardContext| ctx.header::<header::ContentType>().is_some())
-                            .to(upload_form)
-                    )
-                    
-            )*/
     })
     .bind(("0.0.0.0", 8000))?
     .run()
